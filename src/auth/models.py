@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.db import Base, get_db
-from ..core.time import now_moscow
+from ..core.time import now_utc_plus_3
 
 
 class User(SQLAlchemyBaseUserTable[int], Base):
@@ -17,7 +17,7 @@ class User(SQLAlchemyBaseUserTable[int], Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     registered_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
-        default=now_moscow,
+        default=now_utc_plus_3,
         nullable=False,
     )
 

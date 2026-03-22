@@ -1,13 +1,12 @@
 from sqlalchemy import func
-from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from src.core.config import INACTIVE_LINK_DAYS
-from src.core.time import days_ago_moscow, now_moscow
+from src.core.time import days_ago_utc_plus_3, now_utc_plus_3
 
 from .models import Stats, Url
-from .service import get_short_code
+from .service import decode_short_code, get_short_code
 
 
 async def create_link(
@@ -40,7 +39,8 @@ async def get_link_by_short_code(
     session: AsyncSession,
     short_code: str,
 ) -> Url | None:
-    statement = select(Url).where(Url.short_code == short_code)
+    url_id = decode_short_code(short_code)
+    statement = select(Url).where(Url.id == url_id)
     result = await session.execute(statement)
     return result.scalar_one_or_none()
 
@@ -94,19 +94,19 @@ async def update_link(
     return link
 
 
-async def create_redirect_stat(session: AsyncSession, short_code: str) -> Stats:
-    stat = Stats(short_code=short_code)
+async def create_redirect_stat(session: AsyncSession, link: Url) -> Stats:
+    stat = Stats(url_id=link.id)
     session.add(stat)
     await session.commit()
     await session.refresh(stat)
     return stat
 
 
-async def get_link_stats(session: AsyncSession, short_code: str) -> tuple[int, object | None]:
+async def get_link_stats(session: AsyncSession, link: Url) -> tuple[int, object | None]:
     statement = select(
         func.count(Stats.id),
         func.max(Stats.redirected_at),
-    ).where(Stats.short_code == short_code)
+    ).where(Stats.url_id == link.id)
     result = await session.execute(statement)
     redirects_count, last_used_at = result.one()
     return redirects_count, last_used_at
@@ -115,7 +115,7 @@ async def get_link_stats(session: AsyncSession, short_code: str) -> tuple[int, o
 async def delete_if_expired(session: AsyncSession, link: Url | None) -> bool:
     if link is None or link.expires_at is None:
         return False
-    if link.expires_at > now_moscow():
+    if link.expires_at > now_utc_plus_3():
         return False
     await delete_link(session, link)
     return True
@@ -125,9 +125,9 @@ async def delete_if_inactive(session: AsyncSession, link: Url | None) -> bool:
     if link is None:
         return False
 
-    _, last_used_at = await get_link_stats(session, link.short_code)
+    _, last_used_at = await get_link_stats(session, link)
     last_activity_at = last_used_at or link.created_at
-    if last_activity_at >= days_ago_moscow(INACTIVE_LINK_DAYS):
+    if last_activity_at >= days_ago_utc_plus_3(INACTIVE_LINK_DAYS):
         return False
 
     await delete_link(session, link)
@@ -135,8 +135,5 @@ async def delete_if_inactive(session: AsyncSession, link: Url | None) -> bool:
 
 
 async def delete_link(session: AsyncSession, link: Url) -> None:
-    await session.execute(
-        sa_delete(Stats).where(Stats.short_code == link.short_code)
-    )
     await session.delete(link)
     await session.commit()

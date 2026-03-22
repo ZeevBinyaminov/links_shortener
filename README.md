@@ -1,6 +1,6 @@
 # URL Shortener API
 
-Сервис для сокращения ссылок на `FastAPI` с хранением данных в `PostgreSQL`, кешированием редиректов в `Redis` и проксированием через `nginx`.
+Сервис сокращения ссылок на `FastAPI` с хранением данных в `PostgreSQL`, кешированием редиректов в `Redis` и проксированием через `nginx`.
 
 ## Стек
 
@@ -14,11 +14,9 @@
 
 ## Запуск
 
-### Через Docker Compose
+### Docker Compose
 
 1. Создай `.env` в корне проекта.
-
-Пример:
 
 ```env
 DB_NAME=app_db
@@ -36,19 +34,14 @@ docker compose down -v
 docker compose up -d --build
 ```
 
-3. Приложение будет доступно по адресу:
+3. Приложение будет доступно:
 
 ```text
 http://<host>:1111
-```
-
-Swagger UI:
-
-```text
 http://<host>:1111/docs
 ```
 
-### Локально без Docker
+### Локальный запуск
 
 1. Установи зависимости:
 
@@ -76,15 +69,20 @@ uvicorn src.main:app --reload
 
 Используется JWT.
 
-Поток такой:
+Поток работы:
 
-1. Зарегистрировать пользователя через `POST /auth/register`
-2. Получить токен через `POST /auth/jwt/login`
-3. Передавать токен в заголовке:
+1. `POST /auth/register`
+2. `POST /auth/jwt/login`
+3. Передача токена в заголовке:
 
 ```text
 Authorization: Bearer <token>
 ```
+
+`POST /auth/jwt/login` ожидает `application/x-www-form-urlencoded`:
+
+- `username` = email
+- `password` = пароль
 
 ## API
 
@@ -93,8 +91,6 @@ Authorization: Bearer <token>
 #### `POST /auth/register`
 
 Регистрация пользователя.
-
-Тело:
 
 ```json
 {
@@ -105,16 +101,7 @@ Authorization: Bearer <token>
 
 #### `POST /auth/jwt/login`
 
-Логин пользователя, возвращает JWT.
-
-Важно: endpoint ожидает `application/x-www-form-urlencoded`.
-
-Поля формы:
-
-- `username` = email
-- `password` = пароль
-
-Пример:
+Логин и получение JWT.
 
 ```bash
 curl -X POST "http://localhost:1111/auth/jwt/login" \
@@ -128,9 +115,11 @@ curl -X POST "http://localhost:1111/auth/jwt/login" \
 
 Создать короткую ссылку.
 
-Доступно всем. Если передан JWT, ссылка будет привязана к пользователю.
+- доступно всем
+- если передан JWT, ссылка привязывается к пользователю
+- если `expires_at` не передан, ссылка живёт 1 час
 
-Тело:
+Пример тела:
 
 ```json
 {
@@ -140,103 +129,49 @@ curl -X POST "http://localhost:1111/auth/jwt/login" \
 }
 ```
 
-Если `expires_at` не передан, ссылка живёт 1 час.
-
-Пример:
-
-```bash
-curl -X POST "http://localhost:1111/links/shorten" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com",
-    "alias": "example"
-  }'
-```
-
 #### `GET /links/{short_code}`
 
 Редирект на оригинальный URL.
 
-При обращении:
-
-- сначала используется кеш `Redis`
-- если записи в кеше нет, ссылка ищется в `PostgreSQL`
-- факт перехода сохраняется в таблицу `stats`
-
-Пример:
-
-```bash
-curl -i "http://localhost:1111/links/example"
-```
+- сначала проверяется `Redis`
+- при cache miss ссылка ищется в `PostgreSQL`
+- переход сохраняется в `stats`
 
 #### `GET /links/{short_code}/stats`
 
-Статистика по короткой ссылке.
-
-Возвращает:
+Статистика по короткой ссылке:
 
 - оригинальный URL
-- дату создания
+- дата создания
 - количество переходов
-- дату последнего использования
-
-Пример ответа:
-
-```json
-{
-  "url": "https://example.com",
-  "created_at": "2026-03-15T20:10:00+03:00",
-  "redirects_count": 5,
-  "last_used_at": "2026-03-15T20:42:00+03:00"
-}
-```
+- дата последнего использования
 
 #### `GET /links/search?original_url={url}`
 
 Поиск короткой ссылки по оригинальному URL.
 
-Пример:
-
-```bash
-curl "http://localhost:1111/links/search?original_url=https://example.com"
-```
-
 #### `GET /links/my`
 
 Список ссылок пользователя.
 
-Если токен не передан, возвращается пустой список.
-
-Пример:
-
-```bash
-curl "http://localhost:1111/links/my" \
-  -H "Authorization: Bearer <token>"
-```
+- требует JWT для непустого результата
+- без токена возвращает пустой список
 
 #### `PUT /links/{short_code}`
 
 Обновление ссылки.
 
-Требует JWT и доступно только владельцу ссылки.
-
-Тело:
-
-```json
-{
-  "url": "https://new-example.com",
-  "alias": "new-alias"
-}
-```
-
-Если `alias` передан, `short_code` синхронизируется с ним.
-Если `alias` не передан, `short_code` генерируется автоматически.
+- требует JWT
+- доступно только владельцу
+- если передан `alias`, он становится новым `short_code`
+- если `alias` не передан, `short_code` генерируется автоматически
 
 #### `DELETE /links/{short_code}`
 
 Удаление ссылки.
 
-Требует JWT и доступно только владельцу ссылки.
+- требует JWT
+- доступно только владельцу
 
 ## Примеры запросов
 
@@ -259,6 +194,17 @@ curl -X POST "http://localhost:1111/auth/jwt/login" \
   -d "username=user@example.com&password=strongpassword"
 ```
 
+### Создание ссылки
+
+```bash
+curl -X POST "http://localhost:1111/links/shorten" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "alias": "example"
+  }'
+```
+
 ### Создание ссылки с токеном
 
 ```bash
@@ -271,10 +217,22 @@ curl -X POST "http://localhost:1111/links/shorten" \
   }'
 ```
 
+### Редирект
+
+```bash
+curl -i "http://localhost:1111/links/example"
+```
+
 ### Получение статистики
 
 ```bash
 curl "http://localhost:1111/links/example/stats"
+```
+
+### Поиск по оригинальному URL
+
+```bash
+curl "http://localhost:1111/links/search?original_url=https://example.com"
 ```
 
 ### Обновление ссылки
@@ -297,13 +255,7 @@ curl -X DELETE "http://localhost:1111/links/example2" \
 
 ## База данных
 
-Используются таблицы:
-
 ### `users`
-
-Пользователи приложения.
-
-Поля:
 
 - `id`
 - `email`
@@ -315,10 +267,6 @@ curl -X DELETE "http://localhost:1111/links/example2" \
 
 ### `urls`
 
-Основные сокращённые ссылки.
-
-Поля:
-
 - `id`
 - `url` — оригинальный URL
 - `short_code` — короткий код
@@ -329,12 +277,8 @@ curl -X DELETE "http://localhost:1111/links/example2" \
 
 ### `stats`
 
-Журнал переходов по ссылкам.
-
-Поля:
-
 - `id`
-- `short_code`
+- `url_id`
 - `redirected_at`
 
 На основе `stats` считаются:
@@ -342,9 +286,37 @@ curl -X DELETE "http://localhost:1111/links/example2" \
 - число переходов: `count(*)`
 - последнее использование: `max(redirected_at)`
 
+## Тесты
+
+Для тестов нужна отдельная база:
+
+```bash
+docker run --name project3-test-postgres \
+  -e POSTGRES_DB=test_db \
+  -e POSTGRES_USER=test_user \
+  -e POSTGRES_PASSWORD=test_password \
+  -p 5433:5432 \
+  -d postgres:16
+```
+
+Запуск тестов:
+
+```bash
+pytest --cov=src --cov-report=html
+```
+
+HTML-отчёт будет создан в папке `htmlcov/`.
+
+
+Процент покрытия тестами:
+![alt text](htmlcov.png)
+
+Результаты нагрузочного тестирования:
+- [Locust HTML Report](./locust_report.html)
+
 ## Дополнительно
 
-- Время в приложении хранится в часовом поясе `Europe/Moscow`
-- Ссылки по умолчанию живут 1 час, если не передан `expires_at`
-- Неиспользуемые ссылки автоматически удаляются спустя `INACTIVE_LINK_DAYS`
-- Частые редиректы кешируются в `Redis` по схеме `short_code -> original_url`
+- время в приложении считается в `UTC+3`
+- ссылки по умолчанию живут 1 час
+- неиспользуемые ссылки автоматически удаляются спустя `INACTIVE_LINK_DAYS`
+- редиректы кешируются в `Redis`

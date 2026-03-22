@@ -13,6 +13,7 @@ from src.links.crud import (
     delete_if_expired,
     delete_if_inactive,
     delete_link,
+    get_link_by_alias,
     get_link_by_short_code,
     get_link_by_url,
     get_links_by_user,
@@ -26,12 +27,22 @@ from src.links.schemas import LinkCreate, LinkRead, LinkStatsRead, LinkUpdate
 router = APIRouter(prefix="/links", tags=["links"])
 
 
+async def get_link_by_identifier(
+    session: AsyncSession,
+    identifier: str,
+) -> Url | None:
+    link = await get_link_by_alias(session, identifier)
+    if link is not None:
+        return link
+    return await get_link_by_short_code(session, identifier)
+
+
 async def get_owned_link(
     short_code: str,
     session: AsyncSession = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Url:
-    link = await get_link_by_short_code(session, short_code)
+    link = await get_link_by_identifier(session, short_code)
     if await delete_if_expired(session, link):
         link = None
     if await delete_if_inactive(session, link):
@@ -97,7 +108,7 @@ async def get_short_code_stats(
     short_code: str,
     session: AsyncSession = Depends(get_db),
 ) -> LinkStatsRead:
-    link = await get_link_by_short_code(session, short_code)
+    link = await get_link_by_identifier(session, short_code)
     if await delete_if_expired(session, link):
         link = None
     if await delete_if_inactive(session, link):
@@ -108,7 +119,7 @@ async def get_short_code_stats(
             detail="Link not found.",
         )
 
-    redirects_count, last_used_at = await get_link_stats(session, short_code)
+    redirects_count, last_used_at = await get_link_stats(session, link)
     return LinkStatsRead(
         url=link.url,
         created_at=link.created_at,
@@ -123,11 +134,7 @@ async def get_my_link(
     session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     cached_url = await get_link_cache(short_code)
-    if cached_url is not None:
-        await create_redirect_stat(session, short_code)
-        return RedirectResponse(url=cached_url, status_code=status.HTTP_302_FOUND)
-
-    link = await get_link_by_short_code(session, short_code)
+    link = await get_link_by_identifier(session, short_code)
     if await delete_if_expired(session, link):
         link = None
     if await delete_if_inactive(session, link):
@@ -137,8 +144,11 @@ async def get_my_link(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Link not found.",
         )
+    if cached_url is not None:
+        await create_redirect_stat(session, link)
+        return RedirectResponse(url=cached_url, status_code=status.HTTP_302_FOUND)
     await set_link_cache(short_code, link.url)
-    await create_redirect_stat(session, short_code)
+    await create_redirect_stat(session, link)
     return RedirectResponse(url=link.url, status_code=status.HTTP_302_FOUND)
 
 
